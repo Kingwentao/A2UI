@@ -8,7 +8,9 @@
     { "$ref": "#/$defs/CreateSurfaceMessage" },
     { "$ref": "#/$defs/UpdateComponentsMessage" },
     { "$ref": "#/$defs/UpdateDataModelMessage" },
-    { "$ref": "#/$defs/DeleteSurfaceMessage" }
+    { "$ref": "#/$defs/DeleteSurfaceMessage" },
+    { "$ref": "#/$defs/CallFunctionMessage" },
+    { "$ref": "#/$defs/ActionResponseMessage" }
   ],
   "$defs": {
     "CreateSurfaceMessage": {
@@ -59,7 +61,6 @@
               "type": "string",
               "description": "The unique identifier for the UI surface to be updated."
             },
-
             "components": {
               "type": "array",
               "description": "A list containing all UI components for the surface.",
@@ -126,6 +127,83 @@
         }
       },
       "required": ["deleteSurface", "version"],
+      "additionalProperties": false
+    },
+    "CallFunctionMessage": {
+      "type": "object",
+      "description": "A function invoked from the server.",
+      "properties": {
+        "version": {
+          "const": "v0.10"
+        },
+        "functionCallId": {
+          "$ref": "common_types.json#/$defs/CallId",
+          "description": "Unique ID for the instance of this function call. MUST be copied verbatim into the functionResponse or error."
+        },
+        "wantResponse": {
+          "type": "boolean",
+          "default": false
+        },
+        "callFunction": {
+          "allOf": [
+            {
+              "$ref": "common_types.json#/$defs/FunctionCall"
+            },
+            {
+              "properties": {
+                "callableFrom": {
+                  "description": "Specifies where this function can be invoked from.",
+                  "enum": [
+                    "remoteOnly",
+                    "clientOrRemote"
+                  ]
+                }
+              }
+            }
+          ],
+          "required": ["call", "returnType", "callableFrom"],
+          "unevaluatedProperties": false
+        }
+      },
+      "required": ["version", "callFunction", "functionCallId"],
+      "additionalProperties": false
+    },
+    "ActionResponseMessage": {
+      "type": "object",
+      "description": "A response to a client-initiated action.",
+      "properties": {
+        "version": {
+          "const": "v0.10"
+        },
+        "actionId": {
+          "type": "string",
+          "description": "The ID of the action call this response belongs to."
+        },
+        "actionResponse": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "description": "The return value of the action.",
+              "type": [ "string", "number", "boolean", "array", "object", "null" ]
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": { "type": "string" },
+                "message": { "type": "string" }
+              },
+              "required": [ "code", "message" ],
+              "additionalProperties": false
+            }
+          },
+          "oneOf": [
+            { "required": [ "value" ] },
+            { "required": [ "error" ] }
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [ "version", "actionResponse", "actionId" ],
       "additionalProperties": false
     }
   }

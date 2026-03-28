@@ -84,7 +84,7 @@ To support A2UI, a transport layer must fulfill the following contract:
 2.  **Message framing**: The transport must clearly delimit individual JSON envelope messages (e.g., using newlines in JSONL, WebSocket frames, or SSE events).
 3.  **Metadata support**: The transport must provide a mechanism to associate metadata with messages. This is critical for:
     - **Data model synchronization**: The `sendDataModel` feature requires the client to send the current data model state as metadata alongside user actions.
-    - **Capabilities exchange**: Client capabilities (supported catalogs, custom components) are exchanged via metadata.
+    - **Capabilities exchange**: Client capabilities (supported catalogs, custom components) and Server capabilities are exchanged via metadata or transport-specific handshakes (like Agent Cards in A2A or initialization in MCP).
 4.  **Bidirectional capability (optional)**: While the rendering stream is unidirectional (Server -> Client), interactive applications require a return channel for `action` messages (Client -> Server).
 
 ### Transport bindings
@@ -146,15 +146,15 @@ The [`server_to_client.json`] envelope schema is designed to be catalog-agnostic
 To validate A2UI messages:
 
 1.  **Basic Catalog**: Map `catalog.json` to `basic_catalog.json`.
-2.  **Custom Catalog**: Map `catalog.json` to your custom catalog file (e.g., `my_custom_catalog.json`).
+2.  **Client Catalog**: Map `catalog.json` to your own catalog file (e.g., `my_company_catalog.json`).
 
 This indirection allows the same core envelope schema to be used with any compliant component catalog without modification.
 
-Custom catalogs can be used to define additional UI components or modify the behavior of existing components. To use a custom catalog, simply include it in the prompt in place of the basic catalog. It should have the same form as the basic catalog, and use common elements in the [`common_types.json`] schema.
+Defining your own catalog allows you to restrict the agent to using exactly the components and visual language that exist in your application. To use your own catalog, simply include it in the prompt in place of the basic catalog. It should have the same form as the basic catalog and use common elements in the [`common_types.json`] schema.
 
-### Validator compliance & custom catalogs
+### Validator compliance when defining catalogs
 
-To ensure that automated validators can verify the integrity of your UI tree (checking that parents reference existing children), custom catalogs MUST adhere to the following strict typing rules:
+To ensure that automated validators can verify the integrity of your UI tree (checking that parents reference existing children), any catalog you define MUST adhere to the following strict typing rules:
 
 1.  **Single child references:** Any property that holds the ID of another component MUST use the `ComponentId` type defined in `common_types.json`.
     - Use: `"$ref": "common_types.json#/$defs/ComponentId"`
@@ -167,7 +167,7 @@ Validators determine which fields represent structural links by looking for thes
 
 ## Envelope message structure
 
-The envelope defines four primary message types, and every message streamed by the server must be a JSON object containing exactly one of the following keys: `createSurface`, `updateComponents`, `updateDataModel`, or `deleteSurface`. The key indicates the type of message, and these are the messages that make up each message in the protocol stream.
+The envelope defines several message types, and every message streamed by the server must be a JSON object containing exactly one of the following keys: `createSurface`, `updateComponents`, `updateDataModel`, `deleteSurface`, or `actionResponse`. The key indicates the type of message, and these are the messages that make up each message in the protocol stream.
 
 ### `createSurface`
 
@@ -275,6 +275,51 @@ This message instructs the client to remove a surface and all its associated com
 }
 ```
 
+### `actionResponse`
+
+This message is sent by the server to respond to a client-initiated `action` that requested a response via `wantResponse: true`.
+
+**Properties:**
+
+- `actionId` (string, required): The unique ID of the action call this response belongs to. MUST match the `actionId` sent by the client.
+- `actionResponse` (object, required): The payload containing the response.
+    - `value` (any): The return value of the action. Present on success.
+    - `error` (object): Error details if the action failed.
+        - `code` (string): Error code.
+        - `message` (string): Description of the error.
+
+Exactly one of `value` or `error` must be present.
+
+**Example:**
+
+Client sends this to the server:
+```json
+{
+  "version": "v0.10",
+  "action": {
+    "name": "get_typeahead_suggestions",
+    "surfaceId": "mysurface",
+    "sourceComponentId": "myinput",
+    "context": {
+      "prefix": "app"
+    },
+    "wantResponse": true,
+    "actionId": "get_typeahead_suggestions_1"
+  }
+}
+```
+
+Server responds with:
+```json
+{
+  "version": "v0.10",
+  "actionId": "get_typeahead_suggestions_1",
+  "actionResponse": {
+    "value": ["apple", "application", "approved"]
+  }
+}
+```
+
 ## Example Stream
 
 The following example demonstrates a complete interaction to render a Contact Form, expressed as a JSONL stream.
@@ -302,7 +347,7 @@ This structure is designed to be both flexible and strictly validated.
 
 ### The component catalog
 
-The set of available UI components and functions is defined in a **Catalog**. The basic catalog is defined in [`basic_catalog.json`]. This allows for different clients to support different sets of components and functions, including custom ones. Advanced use cases may want to define their own custom catalogs to support custom front end design systems or renderers. The server must generate messages that conform to the catalog understood by the client.
+The set of available UI components and functions is defined in a **Catalog**. The basic catalog is defined in [`basic_catalog.json`]. While the Basic Catalog is useful for starting out, most production applications will define their own catalog to reflect their specific design system. The server must generate messages that conform to the catalog understood by the client.
 
 ### UI composition: the adjacency list model
 
@@ -343,7 +388,10 @@ Interactive components (like `Button`) use an `action` property to define what h
 
 #### Server actions
 
-To send an event to the server, use the `event` property within the `action` object. It requires a `name` and an optional `context`.
+To send an event to the server, use the `event` property within the `action` object. It requires a `name` and supports an optional `context`, `wantResponse`, and `responsePath`.
+
+- `wantResponse` (boolean, optional): If true, the client expects an `actionResponse` from the server. Defaults to false.
+- `responsePath` (string, optional): A JSON Pointer path in the local data model where the response `value` should be saved.
 
 ```json
 {
@@ -568,7 +616,7 @@ _Replace the entire data model:_
 
 ### Client to server updates
 
-When `sendDataModel` is set to `true` for a surface, the client automatically appends the **entire data model** of that surface to the metadata of every message (such as `action` or user query) sent to the server that created the surface. The data model is included using the transport's metadata facility (e.g., the `metadata` field in A2A or a header in HTTP). The payload follows the schema in [`a2ui_client_data_model.json`](../json/a2ui_client_data_model.json).
+When `sendDataModel` is set to `true` for a surface, the client automatically appends the **entire data model** of that surface to the metadata of every message (such as `action` or user query) sent to the server that created the surface. The data model is included using the transport's metadata facility (e.g., the `metadata` field in A2A or a header in HTTP). The payload follows the schema in [`client_data_model.json`](../json/client_data_model.json).
 
 - **Targeted Delivery**: The data model is sent exclusively to the server that created the surface. Data cannot leak to other agents or servers.
 - **Trigger:** Data is sent only when a client-to-server message is triggered (e.g., by a user action like a button click). Passive data changes (like typing in a text field) do not trigger a network request on their own; they simply update the local state, which will be sent with the next action.
@@ -813,14 +861,19 @@ This message is sent when the user interacts with a component that has an `actio
 - `sourceComponentId` (string, required): The ID of the component that triggered the action.
 - `timestamp` (string, required): An ISO 8601 timestamp.
 - `context` (object, required): A JSON object containing any context provided in the component's `action` property.
+- `actionId` (string, optional): A unique ID for this action call, generated by the client if `wantResponse` is true.
 
-### Client capabilities & metadata
+### Capabilities & metadata
 
-In A2UI v0.10, client capabilities and other metadata are sent as part of the **Transport metadata** (e.g., A2A metadata) envelope in every message.
+In A2UI v0.10, capabilities and other metadata are exchanged via **Transport metadata** or initialization payloads (e.g., A2A metadata, Agent Cards, or MCP initialization), rather than as first-class A2UI messages.
+
+#### Server capabilities
+
+A server (or agent) advertises its capabilities using the [`server_capabilities.json`] schema. This indicates which catalogs it can generate UI for, and whether it accepts inline catalogs from the client. The exact mechanism depends on the transport (e.g., the `params` object in an A2A AgentCard, or server capabilities in MCP).
 
 #### Client capabilities
 
-The `a2uiClientCapabilities` object in the metadata follows the [`a2ui_client_capabilities.json`] schema.
+The `a2uiClientCapabilities` object in the metadata follows the [`client_capabilities.json`] schema.
 
 **Properties:**
 
@@ -829,7 +882,7 @@ The `a2uiClientCapabilities` object in the metadata follows the [`a2ui_client_ca
 
 #### Client data model
 
-When `sendDataModel` is enabled for a surface, the client includes the `a2uiClientDataModel` object in the metadata, following the [`a2ui_client_data_model.json`] schema.
+When `sendDataModel` is enabled for a surface, the client includes the `a2uiClientDataModel` object in the metadata, following the [`client_data_model.json`] schema.
 
 **Properties:**
 
@@ -843,7 +896,8 @@ This message is used to report a client-side error to the server.
 [`common_types.json`]: ../json/common_types.json
 [`server_to_client.json`]: ../json/server_to_client.json
 [`client_to_server.json`]: ../json/client_to_server.json
-[`a2ui_client_capabilities.json`]: ../json/a2ui_client_capabilities.json
-[`a2ui_client_data_model.json`]: ../json/a2ui_client_data_model.json
+[`server_capabilities.json`]: ../json/server_capabilities.json
+[`client_capabilities.json`]: ../json/client_capabilities.json
+[`client_data_model.json`]: ../json/client_data_model.json
 [JSON Pointer]: https://datatracker.ietf.org/doc/html/rfc6901
 [RFC 6901]: https://datatracker.ietf.org/doc/html/rfc6901

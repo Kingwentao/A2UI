@@ -1,17 +1,17 @@
 /*
- Copyright 2025 Google LLC
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      https://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
+ * Copyright 2025 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 import { html, css, nothing } from "lit";
@@ -29,6 +29,9 @@ import { Styles } from "../index.js";
 export class Image extends Root {
   @property()
   accessor url: Primitives.StringValue | null = null;
+
+  @property()
+  accessor altText: Primitives.StringValue | null = null;
 
   @property()
   accessor usageHint: Types.ResolvedImage["usageHint"] | null = null;
@@ -65,7 +68,28 @@ export class Image extends Root {
     }
 
     const render = (url: string) => {
-      return html`<img src=${url} />`;
+      let resolvedAlt = "";
+      if (this.altText) {
+        if (typeof this.altText === "object") {
+          if ("literalString" in this.altText) {
+            resolvedAlt = this.altText.literalString ?? "";
+          } else if ("literal" in this.altText) {
+            resolvedAlt = this.altText.literal ?? "";
+          } else if ("path" in this.altText && this.altText.path) {
+            if (this.processor && this.component) {
+              const data = this.processor.getData(
+                this.component,
+                this.altText.path,
+                this.surfaceId ?? A2uiMessageProcessor.DEFAULT_SURFACE_ID
+              );
+              if (typeof data === "string") {
+                resolvedAlt = data;
+              }
+            }
+          }
+        }
+      }
+      return html`<img src=${url} alt=${resolvedAlt} />`;
     };
 
     if (this.url && typeof this.url === "object") {

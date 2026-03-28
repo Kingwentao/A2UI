@@ -1,17 +1,17 @@
 /*
- Copyright 2025 Google LLC
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      https://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
+ * Copyright 2025 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 import { z } from "genkit";
@@ -68,7 +68,7 @@ ${prompt}
     const estimatedInputTokens = Math.ceil(fullPrompt.length / 2.5);
     await rateLimiter.acquirePermit(
       modelConfig as ModelConfiguration,
-      estimatedInputTokens
+      estimatedInputTokens,
     );
 
     // Generate text response
@@ -104,7 +104,7 @@ ${prompt}
 
     if (!candidate) {
       logger.error(
-        `No candidates returned in response. Full response: ${JSON.stringify(response, null, 2)}`
+        `No candidates returned in response. Full response: ${JSON.stringify(response, null, 2)}`,
       );
       throw new Error("No candidates returned");
     }
@@ -115,25 +115,18 @@ ${prompt}
     ) {
       logger.warn(
         `Model finished with reason: ${candidate.finishReason}. Content: ${JSON.stringify(
-          candidate.content
-        )}`
+          candidate.content,
+        )}`,
       );
     }
 
-    // Record token usage (adjusting for actual usage)
+    // Reconcile estimated vs actual token usage and log the difference for precise rate limiting.
     const inputTokens = response.usage?.inputTokens || 0;
     const outputTokens = response.usage?.outputTokens || 0;
-    const totalTokens = inputTokens + outputTokens;
-
-    // We already recorded estimatedInputTokens. We need to record the difference.
-    // If actual > estimated, we record the positive difference.
-    // If actual < estimated, we technically over-counted, but RateLimiter doesn't support negative adjustments yet.
-    // For safety, we just record any *additional* tokens if we under-estimated.
-    // And we definitely record the output tokens.
 
     const additionalInputTokens = Math.max(
       0,
-      inputTokens - estimatedInputTokens
+      inputTokens - estimatedInputTokens,
     );
     const tokensToAdd = additionalInputTokens + outputTokens;
 
@@ -141,10 +134,10 @@ ${prompt}
       rateLimiter.recordUsage(
         modelConfig as ModelConfiguration,
         tokensToAdd,
-        false
+        false,
       );
     }
 
     return { text: response.text, latency };
-  }
+  },
 );
